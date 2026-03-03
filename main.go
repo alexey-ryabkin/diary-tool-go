@@ -2,10 +2,12 @@ package main
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"fmt"
 	"os"
-	"time"
 	"slices"
+	"time"
 )
 
 //
@@ -44,7 +46,15 @@ func (m Month) Next() Month {
 }
 
 func (m Month) Days() []Day {
-	// TODO по григорианскому календарю
+	days := make([]Day, 0, 31)
+	start = time.Date(m.Year, time.Month(m.Month), 1)
+	end = start.AddDate(0, 1, 0)
+
+	for day := start; d.Before(end); d = d.AddDate(0, 0, 1) {
+		days = append(days, Day{m.Year, m.Month, day.Day()})
+	}
+
+	return days
 }
 
 type Day struct {
@@ -54,11 +64,32 @@ type Day struct {
 }
 
 func (d Day) WeekDay() string {
-	// TODO по григорианскому календарю
+	names := []string{
+		"воскресенье",
+		"понедельник",
+		"вторник",
+		"среда",
+		"четверг",
+		"пятница",
+		"суббота",
+	}
+
+	day = time.Date(d.Year, time.Month(d.Month), d.Day)
+	weekday = day.Weekday();
+	return names[weekday]
 }
 
 func (d Day) String() string {
 	return fmt.Sprintf("%04d.%02d.%02d, %v", d.Year, d.Month, d.Day, d.WeekDay())
+}
+
+//
+// ---------- Parsing
+//
+
+// TODO
+func parseFolderName(name string) (Month, error) {
+
 }
 
 // Сканирует поданный каталог и возвращает самый поздний месяц с файлами дневника в полном составе
@@ -67,16 +98,27 @@ func getLatestFullMonth(path string) (month Month, err error) {
 		validFolders []Month
 	)
 
-	contents = ls path
-	for _, folder
-		if vfolder.IsFile {
+	contents, err = os.ReadDir(path)
+	if err != nil {
+		return month, err
+	}
+	if len(contents) == 0 {
+		return month, errors.New("рабочий каталог пуст")
+	}
+	for _, folder := range contents {
+		if !vfolder.IsDir() {
 			continue
 		}
 		if checkDirForCorrectness(folder) {
-			month, _ = parseFolderName(os.GetFolder(path))
+			rollingMonth, _ = parseFolderName(folder.Name())
 			validFolders = append(validFolders, month)
 		}
 	}
+
+	if len(validFolders) == 0 {
+		return month, errors.New("в рабочем каталоге только файлы")
+	}
+
 	return slices.SortFunc(validFolders, func(a, b Month) int {
 		if a.Year < b.Year {
 			return -1
@@ -85,6 +127,7 @@ func getLatestFullMonth(path string) (month Month, err error) {
 	})[-1]
 }
 
+// TODO
 func checkDirForCorrectness(path string) bool {
 	var (
 		month Month
@@ -106,7 +149,11 @@ func checkDirForCorrectness(path string) bool {
 	}
 	return areSetsEqual(contents, referenceContentsString)
 
+//
+// ---------- UI logic
+//
 
+// TODO
 func printLastFullMonth() error {
 	workingDir, err := os.Getwd()
 	if err != nil {
