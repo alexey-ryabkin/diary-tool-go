@@ -2,11 +2,13 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -26,7 +28,7 @@ func (m Month) monthName() string {
 		"Май", "Июнь", "Июль", "Фвгуст",
 		"Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
 	}
-	return names(m.Month)
+	return names[m.Month]
 }
 
 func (m Month) String() string {
@@ -47,10 +49,10 @@ func (m Month) Next() Month {
 
 func (m Month) Days() []Day {
 	days := make([]Day, 0, 31)
-	start = time.Date(m.Year, time.Month(m.Month), 1)
-	end = start.AddDate(0, 1, 0)
+	start := time.Date(m.Year, time.Month(m.Month), 1, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 1, 0)
 
-	for day := start; d.Before(end); d = d.AddDate(0, 0, 1) {
+	for day := start; day.Before(end); day = day.AddDate(0, 0, 1) {
 		days = append(days, Day{m.Year, m.Month, day.Day()})
 	}
 
@@ -74,22 +76,56 @@ func (d Day) WeekDay() string {
 		"суббота",
 	}
 
-	day = time.Date(d.Year, time.Month(d.Month), d.Day)
-	weekday = day.Weekday();
+	day := time.Date(d.Year, time.Month(d.Month), d.Day, 0, 0, 0, 0, time.UTC)
+	weekday := day.Weekday()
 	return names[weekday]
 }
 
 func (d Day) String() string {
-	return fmt.Sprintf("%04d.%02d.%02d, %v", d.Year, d.Month, d.Day, d.WeekDay())
+	return fmt.Sprintf("%04d.%02d.%02d, %v.txt", d.Year, d.Month, d.Day, d.WeekDay())
 }
 
 //
 // ---------- Parsing
 //
 
-// TODO
+// 24.04, Апрель
 func parseFolderName(name string) (Month, error) {
+	parts := strings.Split(name, ",")
+	if len(parts) < 2 {
+		return Month{}, errors.New("наименование папки не содержит запятой")
+	}
 
+	parts = strings.Split(parts[0], ".")
+	if len(parts) < 2 {
+		return Month{}, errors.New("год и месяц не разделены точкой")
+	}
+
+	year, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return Month{}, err
+	}
+	if year < 0 || year > 99 {
+		return Month{}, errors.New("год указан не двумя цифрами")
+	}
+	year = 2000 + year
+
+	month, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return Month{}, err
+	}
+	if month < 1 || month > 12 {
+		return Month{}, errors.New("месяц не может быть меньше одного или больше двенадцати")
+	}
+
+	validMonth := Month{year, month}
+	canon := validMonth.String()
+	if name != canon {
+		errorMsg := fmt.Sprint("формат ", name, " не соответствует каноническому ", canon)
+		return Month{}, errors.New(errorMsg)
+	}
+
+	return validMonth, nil
 }
 
 // Сканирует поданный каталог и возвращает самый поздний месяц с файлами дневника в полном составе
@@ -98,7 +134,7 @@ func getLatestFullMonth(path string) (month Month, err error) {
 		validFolders []Month
 	)
 
-	contents, err = os.ReadDir(path)
+	contents, err := os.ReadDir(path)
 	if err != nil {
 		return month, err
 	}
@@ -106,54 +142,70 @@ func getLatestFullMonth(path string) (month Month, err error) {
 		return month, errors.New("рабочий каталог пуст")
 	}
 	for _, folder := range contents {
-		if !vfolder.IsDir() {
+		if !folder.IsDir() {
 			continue
 		}
-		if checkDirForCorrectness(folder) {
-			rollingMonth, _ = parseFolderName(folder.Name())
-			validFolders = append(validFolders, month)
+		correct, _ := checkDirForCorrectness(filepath.Join(path, folder.Name()))
+		if correct {
+			rollingMonth, _ := parseFolderName(folder.Name())
+			validFolders = append(validFolders, rollingMonth)
 		}
 	}
 
 	if len(validFolders) == 0 {
-		return month, errors.New("в рабочем каталоге только файлы")
+		return month, errors.New("в рабочем каталоге нет ни одной папки дневника")
 	}
 
-	return slices.SortFunc(validFolders, func(a, b Month) int {
+	slices.SortFunc(validFolders, func(a, b Month) int {
 		if a.Year < b.Year {
 			return -1
 		}
-		return a.Month < b.Month
-	})[-1]
+		return a.Month - b.Month
+	})
+
+	return validFolders[len(validFolders)-1], nil
 }
 
-// TODO
-func checkDirForCorrectness(path string) bool {
+func checkDirForCorrectness(path string) (bool, error) {
 	var (
-		month Month
-		contents []string
-		referenceContents []Day
+		month                   Month
+		contentsStr             []string
+		referenceContents       []Day
 		referenceContentsString []string
 	)
 
-	if !os.IsFolder(path) {
-		return false
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return false, errors.New("папки не существует")
 	}
-	if month, err := parseFolderName(os.GetFolder(path)); err != nil {
-		return false
+	if !fileInfo.IsDir() {
+		return false, errors.New("по указанному пути находится файл")
 	}
-	contents = ls path
-	referenceContents = month.GetDays()
+	if month, err = parseFolderName(filepath.Base(path)); err != nil {
+		return false, err
+	}
+
+	contents, err := os.ReadDir(path)
+	if err != nil {
+		return false, err
+	}
+
+	referenceContents = month.Days()
 	for _, v := range referenceContents {
-		referenceContentsString = append(referenceContentsString, v.String)
+		referenceContentsString = append(referenceContentsString, v.String())
 	}
-	return areSetsEqual(contents, referenceContentsString)
+
+	contentsStr = make([]string, 0, len(contents))
+	for _, e := range contents {
+		contentsStr = append(contentsStr, e.Name())
+	}
+	return areSetsEqual(contentsStr, referenceContentsString), nil
+}
 
 //
 // ---------- UI logic
 //
 
-// TODO
 func printLastFullMonth() error {
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -163,7 +215,7 @@ func printLastFullMonth() error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Последний полностью созданный месяц - %v", lastFullMonth)
+	fmt.Printf("Последний полностью созданный месяц - %v\n", lastFullMonth)
 	return nil
 }
 
@@ -175,17 +227,14 @@ func main() {
 	)
 
 	if err := printLastFullMonth(); err != nil {
-		fmt.Printf("Просканировать текущий каталог невозможно: %v\n", err)
+		fmt.Printf("Определить последний созданный месяц невозможно: %v\n", err)
 	}
 
 	timeNow = time.Now()
 	currentMonth = Month{timeNow.Year(), int(timeNow.Month())}
-	nextMonth = currentMonth.NextMonth
-
-	fmt.Println("Последний полностью созданный месяц - %v", lastFullMonth)
-	/*
-	fmt.Println("1 - создать текущий месяц - %v", currentMonth)
-	fmt.Println("2 (по умолчанию) - создать следующий месяц - %v", nextMonth)
+	nextMonth = currentMonth.Next()
+	fmt.Printf("1 - создать текущий месяц - %v\n", currentMonth)
+	fmt.Printf("2 (по умолчанию) - создать следующий месяц - %v\n", nextMonth)
 	consoleReader := bufio.NewReader(os.Stdin)
 	input, _, err := consoleReader.ReadRune()
 	if err != nil {
@@ -198,19 +247,24 @@ func main() {
 		fmt.Println("Будет создан следующий месяц.")
 		created, existed, garbage, target = CreateNewFiles(nextMonth)
 	}
-	fmt.Println("Успешно создано файлов - %v/%v:", len(created), len(target))
+	fmt.Printf("Успешно создано файлов - %v/%v:\n", len(created), len(target))
 	for _, file := range created {
 		fmt.Println(file)
 	}
-	fmt.Println("Файлов уже было ранее - %v:", len(existed))
+	fmt.Printf("Файлов уже было ранее - %v:\n", len(existed))
 	for _, file := range existed {
 		fmt.Println(file)
 	}
-	fmt.Println("Лишних файлов в папке - %v:", len(garbage))
+	fmt.Printf("Лишних файлов в папке - %v:\n", len(garbage))
 	for _, file := range garbage {
 		fmt.Println(file)
 	}
-	*/
+}
+
+func CreateNewFiles(currentMonth Month) ([]Day, []Day, []Day, []Day) {
+	fmt.Print("unimplemented")
+	a := make([]Day, 0)
+	return a, a, a, a
 }
 
 // Проверяет равенство содержимого без учёта порядка и повторов
