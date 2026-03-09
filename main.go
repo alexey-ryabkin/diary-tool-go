@@ -59,6 +59,16 @@ func (m Month) Days() []Day {
 	return days
 }
 
+func SortMonths(slice []Month) []Month {
+	slices.SortFunc(slice, func(a, b Month) int {
+		if a.Year < b.Year {
+			return -1
+		}
+		return a.Month - b.Month
+	})
+	return slice
+}
+
 type Day struct {
 	Year  int
 	Month int
@@ -83,6 +93,19 @@ func (d Day) WeekDay() string {
 
 func (d Day) String() string {
 	return fmt.Sprintf("%04d.%02d.%02d, %v.txt", d.Year, d.Month, d.Day, d.WeekDay())
+}
+
+func SortDays(slice []Day) []Day {
+	slices.SortFunc(slice, func(a, b Day) int {
+		if a.Year < b.Year {
+			return -1
+		}
+		if a.Month < b.Month {
+			return -1
+		}
+		return a.Day - b.Day
+	})
+	return slice
 }
 
 //
@@ -156,12 +179,7 @@ func getLatestFullMonth(path string) (month Month, err error) {
 		return month, errors.New("в рабочем каталоге нет ни одной папки дневника")
 	}
 
-	slices.SortFunc(validFolders, func(a, b Month) int {
-		if a.Year < b.Year {
-			return -1
-		}
-		return a.Month - b.Month
-	})
+	validFolders = SortMonths(validFolders)
 
 	return validFolders[len(validFolders)-1], nil
 }
@@ -221,9 +239,10 @@ func printLastFullMonth() error {
 
 func main() {
 	var (
-		currentMonth, nextMonth           Month
-		timeNow                           time.Time
-		created, existed, garbage, target []Day
+		currentMonth, nextMonth  Month
+		timeNow                  time.Time
+		created, existed, target []Day
+		garbage                  []string
 	)
 
 	if err := printLastFullMonth(); err != nil {
@@ -235,18 +254,29 @@ func main() {
 	nextMonth = currentMonth.Next()
 	fmt.Printf("1 - создать текущий месяц - %v\n", currentMonth)
 	fmt.Printf("2 (по умолчанию) - создать следующий месяц - %v\n", nextMonth)
+
 	consoleReader := bufio.NewReader(os.Stdin)
 	input, _, err := consoleReader.ReadRune()
 	if err != nil {
 		fmt.Println(err)
 	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		fmt.Println("Определить рабочую директорию невозможно, создать файлики негде.\n", err)
+	}
+
 	if input == '1' {
 		fmt.Println("Будет создан текущий месяц.")
-		created, existed, garbage, target = CreateNewFiles(currentMonth)
+		created, existed, garbage, target, err = CreateNewFiles(currentMonth, wd)
 	} else {
 		fmt.Println("Будет создан следующий месяц.")
-		created, existed, garbage, target = CreateNewFiles(nextMonth)
+		created, existed, garbage, target, err = CreateNewFiles(nextMonth, wd)
 	}
+	if err != nil {
+		fmt.Println(err)
+	}
+
 	fmt.Printf("Успешно создано файлов - %v/%v:\n", len(created), len(target))
 	for _, file := range created {
 		fmt.Println(file)
@@ -261,11 +291,87 @@ func main() {
 	}
 }
 
-func CreateNewFiles(currentMonth Month) ([]Day, []Day, []Day, []Day) {
-	fmt.Print("unimplemented")
-	a := make([]Day, 0)
-	return a, a, a, a
+func CreateNewFiles(month Month, path string) ([]Day, []Day, []string, []Day, error) {
+	var (
+		targetMap                map[string]Day
+		created, existed, target []Day
+		existing, garbage        []string
+		generalErr               error
+	)
+
+	// Получить список того, что надо создать target
+	target = month.Days()
+	targetMap = make(map[string]Day, 31)
+	for _, day := range target {
+		targetMap[day.String()] = day
+	}
+
+	path = filepath.Join(path, month.String())
+
+	// Создать папку
+	err := os.MkdirAll(path, 0o777) // rwx(7)rwx(7)rwx(7)
+	if err != nil {
+		err = fmt.Errorf("Создать каталог %v не удалось: %v\n", path, err)
+		return created, existed, garbage, target, err
+	}
+
+	// Получить перечень файлов в ней existing
+	fileInfo, err := os.Stat(path)
+	if !fileInfo.IsDir() {
+		return created, existed, garbage, target, errors.New("по указанному пути находится файл")
+	}
+
+	contents, err := os.ReadDir(path)
+	if err != nil {
+		return created, existed, garbage, target, err
+	}
+
+	existing = make([]string, 0, len(contents))
+	for _, e := range contents {
+		existing = append(existing, e.Name())
+	}
+
+	// existing - target = garbage
+	// existing * target = existed
+	garbage = make([]string, 0, len(existing))
+	for _, name := range existing {
+		if day, ok := targetMap[name]; ok {
+			existed = append(existed, day)
+			delete(targetMap, name)
+		} else {
+			garbage = append(garbage, name)
+		}
+	}
+
+	// created
+	created = make([]Day, 0)
+	for name, day := range targetMap {
+		file, err := os.OpenFile(
+			filepath.Join(path, name),
+			os.O_CREATE|os.O_EXCL|os.O_WRONLY,
+			0o666)
+		if err != nil {
+			if generalErr != nil {
+				generalErr = fmt.Errorf("%v\nНе удалось создать файл %v: %v", generalErr, name, err)
+			} else {
+				generalErr = fmt.Errorf("Не удалось создать файл %v: %v", name, err)
+			}
+		} else {
+			created = append(created, day)
+			file.Close()
+		}
+	}
+
+	created = SortDays(created)
+	existed = SortDays(existed)
+	slices.Sort(garbage)
+
+	return created, existed, garbage, target, generalErr
 }
+
+//
+// ---------- Utils
+//
 
 // Проверяет равенство содержимого без учёта порядка и повторов
 func areSetsEqual(a, b []string) bool {
@@ -287,20 +393,3 @@ func areSetsEqual(a, b []string) bool {
 
 	return true
 }
-
-/*
-DTO: месяц, день
-Составить первичное сообщение
-	Определить, что уже создано
-		Получить месяц из наименования папки, отсортировать
-		Получить день из наименования файла
-		Сравнить с календарём
-		Повторять до получения полного месяца
-	Определить текущий месяц
-	Отформатировать имя папки - месяц
-Получить ввод из stdin
-Составить набор дней
-Отформатировать имя файла - день
-Составить набор имён файлов месяца
-Создать новые файлы, не редактируя существующие
-*/
