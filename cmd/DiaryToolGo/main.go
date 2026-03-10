@@ -10,146 +10,24 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/alexey-ryabkin/diary-tool-go/internal/models"
 )
 
 //
 // ---------- Models
 //
 
-type Month struct {
-	Year  int
-	Month int
-}
 
-func (m Month) monthName() string {
-	names := []string{
-		"",
-		"Январь", "Февраль", "Март", "Апрель",
-		"Май", "Июнь", "Июль", "Август",
-		"Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
-	}
-	return names[m.Month]
-}
 
-func (m Month) String() string {
-	return fmt.Sprintf("%02d.%02d, %v", m.Year%100, m.Month, m.monthName())
-}
 
-func (m Month) Next() Month {
-	y := m.Year
-	mo := m.Month + 1
-
-	if mo > 12 {
-		mo = 1
-		y++
-	}
-
-	return Month{Year: y, Month: mo}
-}
-
-func (m Month) Days() []Day {
-	days := make([]Day, 0, 31)
-	start := time.Date(m.Year, time.Month(m.Month), 1, 0, 0, 0, 0, time.UTC)
-	end := start.AddDate(0, 1, 0)
-
-	for day := start; day.Before(end); day = day.AddDate(0, 0, 1) {
-		days = append(days, Day{m.Year, m.Month, day.Day()})
-	}
-
-	return days
-}
-
-func SortMonths(slice []Month) []Month {
-	slices.SortFunc(slice, func(a, b Month) int {
-		if a.Year < b.Year {
-			return -1
-		}
-		return a.Month - b.Month
-	})
-	return slice
-}
-
-type Day struct {
-	Year  int
-	Month int
-	Day   int
-}
-
-func (d Day) WeekDay() string {
-	names := []string{
-		"воскресенье",
-		"понедельник",
-		"вторник",
-		"среда",
-		"четверг",
-		"пятница",
-		"суббота",
-	}
-
-	day := time.Date(d.Year, time.Month(d.Month), d.Day, 0, 0, 0, 0, time.UTC)
-	weekday := day.Weekday()
-	return names[weekday]
-}
-
-func (d Day) String() string {
-	return fmt.Sprintf("%04d.%02d.%02d, %v.txt", d.Year, d.Month, d.Day, d.WeekDay())
-}
-
-func SortDays(slice []Day) []Day {
-	slices.SortFunc(slice, func(a, b Day) int {
-		if a.Year < b.Year {
-			return -1
-		}
-		if a.Month < b.Month {
-			return -1
-		}
-		return a.Day - b.Day
-	})
-	return slice
-}
 
 //
 // ---------- Parsing
 //
 
 // 24.04, Апрель
-func parseFolderName(name string) (Month, error) {
-	parts := strings.Split(name, ",")
-	if len(parts) < 2 {
-		return Month{}, errors.New("наименование папки не содержит запятой")
-	}
 
-	parts = strings.Split(parts[0], ".")
-	if len(parts) < 2 {
-		return Month{}, errors.New("год и месяц не разделены точкой")
-	}
-
-	year, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return Month{}, err
-	}
-	if year < 0 || year > 99 {
-		return Month{}, errors.New("год указан не двумя цифрами")
-	}
-	year = 2000 + year
-
-	month, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return Month{}, err
-	}
-	if month < 1 || month > 12 {
-		return Month{}, errors.New("месяц не может быть меньше одного или больше двенадцати")
-	}
-
-	validMonth := Month{year, month}
-	canon := validMonth.String()
-	if name != canon {
-		errorMsg := fmt.Sprint("формат ", name, " не соответствует каноническому ", canon)
-		return Month{}, errors.New(errorMsg)
-	}
-
-	return validMonth, nil
-}
 
 // Сканирует поданный каталог и возвращает самый поздний месяц с файлами дневника в полном составе
 func getLatestFullMonth(path string) (month Month, err error) {
