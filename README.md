@@ -30,10 +30,11 @@
 
 ```
 git clone https://github.com/alexey-ryabkin/diary-tool-go.git
-go install ./diary-tool-go
+cd diary-tool-go
+go install ./cmd/diary-tool-go
 mkdir ~/Дневник
 cd ~/Дневник
-DiaryToolGo
+diary-tool-go
 ```
 
 При запуске программа:
