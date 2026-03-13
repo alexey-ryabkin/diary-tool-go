@@ -15,11 +15,19 @@ type Month struct {
 }
 
 func (m Month) monthName() string {
-	names := []string{
-		"",
-		"Январь", "Февраль", "Март", "Апрель",
-		"Май", "Июнь", "Июль", "Август",
-		"Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+	names := map[int]string{
+		1:  "Январь",
+		2:  "Февраль",
+		3:  "Март",
+		4:  "Апрель",
+		5:  "Май",
+		6:  "Июнь",
+		7:  "Июль",
+		8:  "Август",
+		9:  "Сентябрь",
+		10: "Октябрь",
+		11: "Ноябрь",
+		12: "Декабрь",
 	}
 	return names[m.Month]
 }
@@ -40,6 +48,7 @@ func (m Month) Next() Month {
 	return Month{Year: y, Month: mo}
 }
 
+// Days возвращает slice дней, относящихся к месяцу m по календарю.
 func (m Month) Days() []Day {
 	days := make([]Day, 0, 31)
 	start := time.Date(m.Year, time.Month(m.Month), 1, 0, 0, 0, 0, time.UTC)
@@ -52,12 +61,22 @@ func (m Month) Days() []Day {
 	return days
 }
 
+func (d Month) Before(e Month) bool {
+	if d.Year != e.Year {
+		return d.Year < e.Year
+	}
+	return d.Month < e.Month
+}
+
 func SortMonths(slice []Month) []Month {
 	slices.SortFunc(slice, func(a, b Month) int {
-		if a.Year < b.Year {
+		if a.Before(b) {
 			return -1
 		}
-		return a.Month - b.Month
+		if b.Before(a) {
+			return 1
+		}
+		return 0
 	})
 	return slice
 }

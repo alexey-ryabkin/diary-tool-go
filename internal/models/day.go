@@ -33,15 +33,25 @@ func (d Day) String() string {
 	return fmt.Sprintf("%04d.%02d.%02d, %v.txt", d.Year, d.Month, d.Day, d.WeekDay())
 }
 
+func (d Day) Before(e Day) bool {
+	if d.Year != e.Year {
+		return d.Year < e.Year
+	}
+	if d.Month != e.Month {
+		return d.Month < e.Month
+	}
+	return d.Day < e.Day
+}
+
 func SortDays(slice []Day) []Day {
 	slices.SortFunc(slice, func(a, b Day) int {
-		if a.Year < b.Year {
+		if a.Before(b) {
 			return -1
 		}
-		if a.Month < b.Month {
-			return -1
+		if b.Before(a) {
+			return 1
 		}
-		return a.Day - b.Day
+		return 0
 	})
 	return slice
 }
